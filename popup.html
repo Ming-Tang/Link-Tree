@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<script src="p.js"></script>
+<script>
+//<!--
+
+var Ra = 8,
+  W = 700, H = 500,
+  Zm = 1.0,
+  Cr = 750, Ca = 0.1, Dm = 0.5;
+
+var vs = [ ];
+var N = 0;
+var tr;
+
+var relations = { }, idx = { }, xdi = [ ];
+
+window.addEventListener('load', function() {new Processing(document.getElementById("main"), function(p) {
+
+var ins = document.getElementById("inputs");
+
+function input(n, v, d, min, max, scl) {
+  ins.innerHTML += "<label>" + v
+    + "<" + "/label><input title='" + n + ": " + d
+    + "' type='range' value='" + p.map(d, min, max, 1, scl)
+    + "' onchange='" + v
+    + " = this.value / " + scl + " * " + max + " + " + min
+    + ";this.title = \"" + n + ": \" + " + v + "' min='" + 1 + "' max='" + scl + "' /' + '> ";
+}
+
+input("Repulsion Constant", "Cr", Cr, 1, 5000, 2500);
+input("Attration Constant", "Ca", Ca, 0.01, 1.0, 100);
+input("Damping", "Dm", Dm, 0.05, 0.95, 18);
+input("Zoom Factor", "Zm", Zm, 0.05, 5, 100);
+
+const Vec = p.PVector;
+
+function Vertex(name) {
+  this.name = name;
+  this.loc = new Vec();
+  this.vel = new Vec();
+  this.acc = new Vec();
+  this.dragged = false;
+}
+
+function connected(i, j) {
+  if (!(xdi[i] in relations)) return false;
+  var r = relations[xdi[i]];
+  for (var k = 0; k < r.length; k ++) {
+    if (r[k] == xdi[j]) return true;
+  }
+  return false;
+}
+
+function generate() {
+  relations = chrome.extension.getBackgroundPage().relations;
+  for (var i in relations) idx[i] = N ++;
+  for (var i in idx) xdi[idx[i]] = i;
+  for (var i = 0; i < N; i ++) {
+    var v = new Vertex(xdi[i]);
+    L: {
+      for (var j = 0; j < i; j ++) {
+        var u = vs[j];
+        if (connected(u, v) || connected(v, u)) {
+          v.loc = new Vec(p.random(u.loc.x - Ra, u.loc.x + Ra), p.random(u.loc.y - Ra, u.loc.y + Ra));
+          break L;
+        }
+      }
+      v.loc = new Vec(p.random(W), p.random(H));
+    }
+    vs[i] = v;
+    move();
+  }
+}
+
+function move() {
+  with (p) {
+    for (var i = 0; i < vs.length; i ++) {
+      v = vs[i];
+      v.acc = new Vec();
+      for (var j = 0; j < vs.length; j ++) {
+        if (i == j) continue;
+        u = vs[j];
+        var d = Vec.sub(v.loc, u.loc);
+        var r = d.mag();
+        var rr = r * r;
+        v.acc = Vec.add(v.acc, Vec.mult(d, Cr / rr));
+      }
+      for (var j = 0; j < vs.length; j ++) {
+        if (i == j) continue;
+        if (!(connected(i, j) || connected(j, i))) continue;
+        u = vs[j];
+        var d = Vec.sub(u.loc, v.loc);
+        var dO = Vec.sub(new Vec(W / 2, H / 2), v.loc);
+        v.acc = Vec.add(Vec.add(v.acc, Vec.mult(dO, Ca)), Vec.mult(d, Ca));
+      }
+      var newV = Vec.add(v.vel, v.acc);
+      newV.mult(Dm);
+      v.vel = newV;
+    }
+    for (var i = 0; i < vs.length; i ++) {
+      v = vs[i];
+      if (v.dragged) {
+        v.loc = new Vec((mouseX - tr.x) / Zm, (mouseY - tr.y) / Zm);
+      } else {
+        v.loc = Vec.add(v.loc, v.vel);
+      }
+    }
+  }
+}
+
+p.setup = function() {
+  tr = new Vec();
+  p.frameRate(60);
+  p.textFont(p.loadFont("Biotyp"));
+  p.textAlign(p.CENTER);
+  p.size(W, H);
+  generate();
+}
+
+p.draw = function() {
+  with (p) {
+    background(0);
+    move();
+    pushMatrix();
+    translate(tr.x, tr.y);
+    scale(Zm);
+    ellipseMode(CENTER);
+    fill(255, 255, 255, 32);
+    noStroke();
+    ellipse(W / 2, H / 2, W / 4, H / 4);
+
+    var d = Vec.sub(new Vec(mouseX, mouseY), new Vec(W / 2, H / 2));
+    if (d.mag() > (W + H) / 8 && (abs(d.x / d.y) < 0.25 || abs(d.x / d.y) > 4)) {
+      tr.add(Vec.mult(d, -25 / (W + H)));
+    }
+    var v, u;
+
+    ellipseMode(CENTER);
+    fill(255);
+    stroke(255);
+    for (var i = 0; i < vs.length; i ++) {
+      for (var j = 0; j < vs.length; j ++) {
+        var v = vs[i];
+        var u = vs[j];
+        if (!connected(i, j)) continue;
+        line(v.loc.x, v.loc.y, u.loc.x, u.loc.y);
+        var d = Vec.sub(v.loc, u.loc);
+        pushMatrix();
+        translate(u.loc.x, u.loc.y);
+        rotate(d.heading2D());
+        beginShape();
+        vertex(0, 0);
+        vertex(Ra * 1.5, -Ra / 2);
+        vertex(Ra * 1.5, Ra / 2);
+        endShape(CLOSE);
+        popMatrix();
+      }
+    }
+    for (var i = 0; i < vs.length; i ++) {
+      v = vs[i];
+      var indeg = 0;
+      for (var j in relations) {
+        for (var k in relations[j]) {
+          indeg += - -(relations[j][k] == xdi[i]);
+        }
+      }
+      var outdeg = relations[xdi[i]].length;
+      fill(200, 240, 255, 150);
+      ellipse(v.loc.x, v.loc.y, Ra * 2, Ra * 2);
+      if (outdeg == 0) {
+        fill(120, 140, 160, v.dragged ? 200 : 180);
+      } else if (indeg == 0) {
+        fill(180, 60, 160, 255);
+      } else {
+        fill(70, 150, 255, v.dragged ? 255 : 200);
+      }
+      var s = (v.dragged ? v.name : v.name.match(/[^/]*\/?$/)[0]);
+      var w = textWidth(s) + 4;
+      rect(v.loc.x - w / 2, v.loc.y - textAscent(), w, textDescent(s) + 4);
+      fill(255);
+      text(s, v.loc.x, v.loc.y);
+    }
+    popMatrix();
+  }
+}
+
+p.mousePressed = function() {
+  for (var i = 0; i < vs.length; i ++) {
+    var v = vs[i];
+    if (Vec.sub(v.loc, new Vec((p.mouseX - tr.x) / Zm, (p.mouseY - tr.y) / Zm)).mag() < Ra) {
+      v.dragged = true;
+      break;
+    }
+  }
+}
+
+p.mouseReleased = function() {
+  for (var i = 0; i < vs.length; i ++) {
+    var v = vs[i];
+    v.dragged = false;
+  }
+}
+
+})}, false);
+
+//-->
+</script>
+<canvas id="main"></canvas>
+<div id="inputs">
+<button onclick="chrome.extension.getBackgroundPage().relations = relations = { }; vs = es = [ ];">Clear</button>
+</div>
+

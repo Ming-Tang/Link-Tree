@@ -12,7 +12,7 @@ var vs = [ ];
 var N = 0;
 var tr;
 
-var relations = { }, idx = { }, xdi = [ ];
+var bg, relations = { }, orders = { }, idx = { }, xdi = [ ];
 
 window.addEventListener('load', function() {new Processing(document.getElementById("main"), function(p) {
 
@@ -24,7 +24,8 @@ function input(n, v, d, min, max, scl) {
     + "' type='range' value='" + p.map(d, min, max, 1, scl)
     + "' onchange='" + v
     + " = this.value / " + scl + " * " + max + " + " + min
-    + ";this.title = \"" + n + ": \" + " + v + "' min='" + 1 + "' max='" + scl + "' /' + '> ";
+    + "; p.mouseX = p.width / 2; p.mouseY = p.height / 2;"
+    + "this.title = \"" + n + ": \" + " + v + "' min='" + 0 + "' max='" + scl + "' /' + '> ";
 }
 
 input("Repulsion Constant", "Cr", Cr, 1, 5000, 2500);
@@ -52,16 +53,29 @@ function connected(i, j) {
 }
 
 function generate() {
-  relations = chrome.extension.getBackgroundPage().relations;
+  bg = chrome.extension.getBackgroundPage();
+  relations = bg.relations;
+  orders = bg.orders;
+
+  var maxOrder = orders[0];
+  for (var i in orders) if (orders[i] > maxOrder) maxOrder = orders[i];
+
   for (var i in relations) idx[i] = N ++;
   for (var i in idx) xdi[idx[i]] = i;
   for (var i = 0; i < N; i ++) {
     var v = new Vertex(xdi[i]);
+    var dr = 200 / maxOrder;
+    v.order = orders[xdi[i]];
     L: {
       for (var j = 0; j < i; j ++) {
         var u = vs[j];
         if (connected(u, v) || connected(v, u)) {
-          v.loc = new Vec(p.random(u.loc.x - Ra, u.loc.x + Ra), p.random(u.loc.y - Ra, u.loc.y + Ra));
+          var order = v.order;
+          var r = dr * order, theta = p.random(Math.TWO_PI);
+          var v1 = new Vec(W / 2, H / 2);
+          var v2 = new Vec(r * cos(theta), r * sin(theta));
+          v1.add(v2);
+          v.loc = v1;
           break L;
         }
       }
@@ -73,10 +87,12 @@ function generate() {
 }
 
 function move() {
+  // simulation step
   with (p) {
     for (var i = 0; i < vs.length; i ++) {
       v = vs[i];
       v.acc = new Vec();
+      // repulsion
       for (var j = 0; j < vs.length; j ++) {
         if (i == j) continue;
         u = vs[j];
@@ -85,6 +101,8 @@ function move() {
         var rr = r * r;
         v.acc = Vec.add(v.acc, Vec.mult(d, Cr / rr));
       }
+
+      // attraction between connected
       for (var j = 0; j < vs.length; j ++) {
         if (i == j) continue;
         if (!(connected(i, j) || connected(j, i))) continue;
@@ -93,10 +111,14 @@ function move() {
         var dO = Vec.sub(new Vec(W / 2, H / 2), v.loc);
         v.acc = Vec.add(Vec.add(v.acc, Vec.mult(dO, Ca)), Vec.mult(d, Ca));
       }
+
+      // update velocity, use damping factor
       var newV = Vec.add(v.vel, v.acc);
       newV.mult(Dm);
       v.vel = newV;
     }
+
+    // update position and velocity
     for (var i = 0; i < vs.length; i ++) {
       v = vs[i];
       if (v.dragged) {
@@ -120,7 +142,10 @@ p.setup = function() {
 p.draw = function() {
   with (p) {
     background(0);
+
+    // Update positions
     move();
+
     pushMatrix();
     translate(tr.x, tr.y);
     scale(Zm);
@@ -129,8 +154,11 @@ p.draw = function() {
     noStroke();
     ellipse(W / 2, H / 2, W / 4, H / 4);
 
+    // When the mouse is in the edge of the screen, pan around
     var d = Vec.sub(new Vec(mouseX, mouseY), new Vec(W / 2, H / 2));
-    if (d.mag() > (W + H) / 8 && (abs(d.x / d.y) < 0.25 || abs(d.x / d.y) > 4)) {
+    if ((d.mag() > (W + H) / 8 && (abs(d.x / d.y) < 0.25 || abs(d.x / d.y) > 4)) // no corner
+        && (mouseX > 5 && mouseY > 5 && mouseX < width - 5 && mouseY < height - 5) // in range
+        && (mouseX != pmouseX && mouseY != pmouseY)) { // mouse moving
       tr.add(Vec.mult(d, -25 / (W + H)));
     }
     var v, u;
@@ -138,6 +166,8 @@ p.draw = function() {
     ellipseMode(CENTER);
     fill(255);
     stroke(255);
+
+    // draw connections
     for (var i = 0; i < vs.length; i ++) {
       for (var j = 0; j < vs.length; j ++) {
         var v = vs[i];
@@ -156,6 +186,8 @@ p.draw = function() {
         popMatrix();
       }
     }
+
+    // draw individual vertices
     for (var i = 0; i < vs.length; i ++) {
       v = vs[i];
       var indeg = 0;
@@ -165,6 +197,8 @@ p.draw = function() {
         }
       }
       var outdeg = relations[xdi[i]].length;
+
+      // color accordingly
       fill(200, 240, 255, 150);
       ellipse(v.loc.x, v.loc.y, Ra * 2, Ra * 2);
       if (outdeg == 0) {
@@ -185,6 +219,7 @@ p.draw = function() {
 }
 
 p.mousePressed = function() {
+  // drag vertices with crude collision detection
   for (var i = 0; i < vs.length; i ++) {
     var v = vs[i];
     if (Vec.sub(v.loc, new Vec((p.mouseX - tr.x) / Zm, (p.mouseY - tr.y) / Zm)).mag() < Ra) {
@@ -207,6 +242,5 @@ p.mouseReleased = function() {
 </script>
 <canvas id="main"></canvas>
 <div id="inputs">
-<button onclick="chrome.extension.getBackgroundPage().relations = relations = { }; vs = es = [ ];">Clear</button>
+<button onclick="var bg; (bg = chrome.extension.getBackgroundPage()).relations = relations = { }; bg.orders = orders = { }; vs = es = [ ];">Clear</button>
 </div>
-

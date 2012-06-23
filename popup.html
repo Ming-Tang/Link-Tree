@@ -33,6 +33,11 @@ input("Attration Constant", "Ca", Ca, 0.01, 1.0, 100);
 input("Damping", "Dm", Dm, 0.05, 0.95, 18);
 input("Zoom Factor", "Zm", Zm, 0.05, 5, 100);
 
+document.getElementById("main").addEventListener("mouseout", function() {
+  p.mouseX = p.width / 2;
+  p.mouseY = p.height / 2;
+});
+
 const Vec = p.PVector;
 
 function Vertex(name) {
@@ -158,7 +163,7 @@ p.draw = function() {
     var d = Vec.sub(new Vec(mouseX, mouseY), new Vec(W / 2, H / 2));
     if ((d.mag() > (W + H) / 8 && (abs(d.x / d.y) < 0.25 || abs(d.x / d.y) > 4)) // no corner
         && (mouseX > 5 && mouseY > 5 && mouseX < width - 5 && mouseY < height - 5) // in range
-        && (mouseX != pmouseX && mouseY != pmouseY)) { // mouse moving
+      ) {
       tr.add(Vec.mult(d, -25 / (W + H)));
     }
     var v, u;
